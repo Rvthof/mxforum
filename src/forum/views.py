@@ -2048,64 +2048,32 @@ user_import_service2 = UserImportService2()
 # Call Stuff at Platform Analytics	#
 #									#
 #####################################
-
-import sys
 import datetime
-import redis
-import pickle
-from suds.client import Client
-from rq import Queue
-from settings import EVENTREG_LOCATION, EVENTREG_USER, EVENTREG_PASS, REDIS_LOC, REDIS_PASS
-
-ALAN_ACTIVE = False
-
-try:
-    client = Client(EVENTREG_LOCATION)
-    ALAN_ACTIVE = True
-    r = redis.Redis(REDIS_LOC, password=REDIS_PASS)
-    q = Queue(connection=r)
-except:
-    ALAN_ACTIVE = False
-    sys.stdout.write("ALAN: Could NOT open platform analytics WSDL at location: (%s). \n" % EVENTREG_LOCATION)
-    sys.stdout.write("ALAN: THIS MEANS NO EVENTS WILL BE SENT. \n")
-
-def send_event(_event):
-    if ALAN_ACTIVE:
-        try:
-            event = pickle.load(_event)
-            
-            client.set_options(soapheaders={'authentication' : {'username': EVENTREG_USER, 'password': EVENTREG_PASS}})
-            
-            sys.stdout.write("ALAN: Stub for event sending with type: %s ", event.EventType)
-            
-            #client.service.RegisterEvent(eventargs)
-    
-        except e:
-            sys.stdout.write("ALAN: Error whilst trying to register event (%s) \n" % e.message)
-            job = q.enqueue(send_event, _event)
-    else:
-        sys.stdout.write("ALAN: Failed to send event, ALAN is NOT active. \n")
-        # ALAN is not running, put event back into queue
-        job = q.enqueue(send_event, _event)
+import json
+import tasks
 
 def register_event(event_type, request, open_id, extra_info, extra_info2, extra_info3, timestamp):
-    user_agent = ''
-    if request:
-        user_agent = request.META['HTTP_USER_AGENT']
+    if hasattr(tasks, 'send_event'):
+        if open_id == None or open_id == "":
+            return
         
-    if not timestamp:
-        timestamp = datetime.datetime.now().isoformat()
-
-    event = {
-        'EventType' : event_type,
-        'OpenId' : open_id,
-        'CompanyId' : '',
-        'UserAgent' : user_agent,
-        'ExtraInfo' : extra_info,
-        'ExtraInfo2' : extra_info2,
-        'ExtraInfo3' : extra_info3,
-        'TimeStamp' : timestamp
-    }
+        user_agent = ''
+        if request:
+            user_agent = request.META['HTTP_USER_AGENT']
+            
+        if not timestamp:
+            timestamp = datetime.datetime.now().isoformat()
     
-    p = pickle.dumps(event)
-    job = q.enqueue(send_event, p)
+        event = {
+            'EventType' : event_type,
+            'OpenId' : open_id,
+            'CompanyId' : '',
+            'UserAgent' : user_agent,
+            'ExtraInfo' : extra_info,
+            'ExtraInfo2' : extra_info2,
+            'ExtraInfo3' : extra_info3,
+            'TimeStamp' : timestamp
+        }
+        
+        p = json.dumps(event)
+        tasks.send_event.delay(p)
